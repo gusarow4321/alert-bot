@@ -8,7 +8,7 @@ import (
 func InitBot(token string, pollingTimeout, adminId int) (*tb.Bot, error) {
 	poller := &tb.LongPoller{Timeout: time.Duration(pollingTimeout) * time.Second}
 	adminAccess := tb.NewMiddlewarePoller(poller, func(upd *tb.Update) bool {
-		if upd.Message.Sender.ID != adminId {
+		if upd.Message != nil && upd.Message.Sender != nil && upd.Message.Sender.ID != adminId {
 			return false
 		}
 		return true
