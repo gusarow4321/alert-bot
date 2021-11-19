@@ -86,12 +86,9 @@ func (b *Binance) SetSymbol(s string) bool {
 func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 	for {
 		if !b.Ready() || channelId == 0 {
-			//log.Println("Skip")
 			time.Sleep(10 * time.Second)
 			continue
 		}
-
-		//log.Println("Work")
 
 		trades, err := b.client.NewListAccountTradeService().Symbol(b.symbol).StartTime(b.lastTS).Do(context.Background())
 		if err != nil {
@@ -99,30 +96,35 @@ func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 			continue
 		}
 
-		for _, t := range trades {
+		lastOpen := ""
+		maxMessagesCount := 10
+
+		for i, t := range trades {
+			if i == maxMessagesCount {
+				break
+			}
+
+			b.lastTS = t.Time + 1
+
 			if t.RealizedPnl == "0" {
 				position := "LONG"
 				if t.Side == "SELL" {
 					position = "SHORT"
 				}
-				_, err = bot.Send(&tb.Chat{ID: channelId}, fmt.Sprintf("%s\nОткрываем позицию в %s по цене %s", b.symbol, position, t.Price))
-				if err != nil {
-					log.Println(err)
+				open := fmt.Sprintf("%s\nОткрываем позицию в %s по цене %s", b.symbol, position, t.Price)
+				if open != lastOpen {
+					lastOpen = open
+					_, err = bot.Send(&tb.Chat{ID: channelId}, open)
+					if err != nil {
+						log.Println(err)
+					}
 				}
 			} else {
-				pnl := "Профит получен"
-				if t.RealizedPnl[0:1] == "-" {
-					pnl = "Убыток получен"
-				}
-				_, err = bot.Send(&tb.Chat{ID: channelId}, fmt.Sprintf("%s\nПозиция закрыта по цене %s\n\n%s: %s", b.symbol, t.Price, pnl, t.RealizedPnl))
+				_, err = bot.Send(&tb.Chat{ID: channelId}, fmt.Sprintf("%s\nПозиция закрыта по цене %s", b.symbol, t.Price))
 				if err != nil {
 					log.Println(err)
 				}
 			}
-		}
-
-		if len(trades) != 0 {
-			b.lastTS = trades[len(trades)-1].Time + 1
 		}
 
 		time.Sleep(10 * time.Second)
