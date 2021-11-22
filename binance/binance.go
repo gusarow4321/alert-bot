@@ -98,7 +98,7 @@ func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 
 		lastOpen := ""
 		lastClose := ""
-		maxMessagesCount := 10
+		maxMessagesCount := 5
 
 		for i, t := range trades {
 			if i == maxMessagesCount {
