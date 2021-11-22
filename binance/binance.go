@@ -97,6 +97,7 @@ func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 		}
 
 		lastOpen := ""
+		lastClose := ""
 		maxMessagesCount := 10
 
 		for i, t := range trades {
@@ -120,9 +121,13 @@ func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 					}
 				}
 			} else {
-				_, err = bot.Send(&tb.Chat{ID: channelId}, fmt.Sprintf("%s\nПозиция закрыта по цене %s", b.symbol, t.Price))
-				if err != nil {
-					log.Println(err)
+				c := fmt.Sprintf("%s\nПозиция закрыта по цене %s", b.symbol, t.Price)
+				if c != lastClose {
+					lastClose = c
+					_, err = bot.Send(&tb.Chat{ID: channelId}, c)
+					if err != nil {
+						log.Println(err)
+					}
 				}
 			}
 		}
