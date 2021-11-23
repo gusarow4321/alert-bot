@@ -42,7 +42,7 @@ var RunCmd = &cobra.Command{
 			return
 		}
 
-		bin := binance.NewBinance("", fromTimestamp, nil)
+		bin := binance.NewBinance([]string{}, fromTimestamp, nil)
 
 		bot.AddHandlers(b, bin, channelId, testnet)
 

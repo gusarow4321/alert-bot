@@ -14,7 +14,8 @@ type State int
 const (
 	nothing State = iota
 	keysUpdate
-	symbolUpdate
+	symbolUpdateNew
+	symbolUpdateRemove
 )
 
 var botState = nothing
@@ -28,14 +29,14 @@ func AddHandlers(b *tb.Bot, bin *binance.Binance, channelId int64, isTest bool) 
 
 	menu := &tb.ReplyMarkup{ResizeReplyKeyboard: true}
 	btnKeys := menu.Text("Подключить ключи")
-	btnSymbol := menu.Text("Изменить пару")
+	btnSymbol := menu.Text("Редактировать пары")
 	menu.Reply(menu.Row(btnKeys), menu.Row(btnSymbol))
 
 	b.Handle("/start", func(m *tb.Message) {
 		botState = nothing
 		_, err = b.Send(
 			m.Sender,
-			fmt.Sprintf("Подключенный канал: %s\n\n%s\n\nВыбранная пара: %s", title, bin.IsConnectedString(), bin.GetSymbol()),
+			fmt.Sprintf("Подключенный канал: %s\n\n%s\n\nВыбранные пары: %s", title, bin.IsConnectedString(), strings.Join(bin.GetSymbols(), ", ")),
 			menu,
 		)
 		if err != nil {
@@ -51,8 +52,27 @@ func AddHandlers(b *tb.Bot, bin *binance.Binance, channelId int64, isTest bool) 
 		}
 	})
 
-	b.Handle("Изменить пару", func(m *tb.Message) {
-		botState = symbolUpdate
+	b.Handle("Редактировать пары", func(m *tb.Message) {
+		symbolMenu := &tb.ReplyMarkup{ResizeReplyKeyboard: true}
+		btnNew := symbolMenu.Text("Добавить")
+		btnRemove := symbolMenu.Text("Удалить")
+		symbolMenu.Reply(symbolMenu.Row(btnNew, btnRemove))
+		_, err = b.Send(m.Sender, "Выберите действие", symbolMenu)
+		if err != nil {
+			log.Println(err)
+		}
+	})
+
+	b.Handle("Добавить", func(m *tb.Message) {
+		botState = symbolUpdateNew
+		_, err = b.Send(m.Sender, "Введите название пары")
+		if err != nil {
+			log.Println(err)
+		}
+	})
+
+	b.Handle("Удалить", func(m *tb.Message) {
+		botState = symbolUpdateRemove
 		_, err = b.Send(m.Sender, "Введите название пары")
 		if err != nil {
 			log.Println(err)
@@ -72,13 +92,20 @@ func AddHandlers(b *tb.Bot, bin *binance.Binance, channelId int64, isTest bool) 
 			if err != nil {
 				log.Println(err)
 			}
-		case symbolUpdate:
-			if bin.SetSymbol(m.Text) {
+		case symbolUpdateNew:
+			if bin.AddSymbol(m.Text) {
 				botState = nothing
-				_, err = b.Send(m.Sender, "Пара обновлена")
+				_, err = b.Send(m.Sender, "Пара добавлена")
 			} else {
 				_, err = b.Send(m.Sender, "Неверное название пары. Попробуйте еще раз\n\nДля отмены - /start")
 			}
+			if err != nil {
+				log.Println(err)
+			}
+		case symbolUpdateRemove:
+			bin.RemoveSymbol(m.Text)
+			botState = nothing
+			_, err = b.Send(m.Sender, "Пара удалена")
 			if err != nil {
 				log.Println(err)
 			}
@@ -87,7 +114,7 @@ func AddHandlers(b *tb.Bot, bin *binance.Binance, channelId int64, isTest bool) 
 		if botState == nothing {
 			_, err = b.Send(
 				m.Sender,
-				fmt.Sprintf("Подключенный канал: %s\n\n%s\n\nВыбранная пара: %s", title, bin.IsConnectedString(), bin.GetSymbol()),
+				fmt.Sprintf("Подключенный канал: %s\n\n%s\n\nВыбранные пары: %s", title, bin.IsConnectedString(), strings.Join(bin.GetSymbols(), ", ")),
 				menu,
 			)
 			if err != nil {

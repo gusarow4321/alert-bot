@@ -6,13 +6,14 @@ import (
 	"github.com/adshao/go-binance/v2/futures"
 	tb "gopkg.in/tucnak/telebot.v2"
 	"log"
+	"sort"
 	"time"
 )
 
 type Binance struct {
-	symbol string
-	lastTS int64
-	client *futures.Client
+	symbols []string
+	lastTS  int64
+	client  *futures.Client
 }
 
 func timestampToInt64(ts string) int64 {
@@ -29,16 +30,16 @@ func timestampToInt64(ts string) int64 {
 	return t.UnixMilli()
 }
 
-func NewBinance(Symbol string, ts string, Client *futures.Client) *Binance {
+func NewBinance(Symbols []string, ts string, Client *futures.Client) *Binance {
 	return &Binance{
-		symbol: Symbol,
-		lastTS: timestampToInt64(ts),
-		client: Client,
+		symbols: Symbols,
+		lastTS:  timestampToInt64(ts),
+		client:  Client,
 	}
 }
 
 func (b *Binance) Ready() bool {
-	return b.client != nil && b.symbol != ""
+	return b.client != nil && len(b.symbols) != 0
 }
 
 func (b *Binance) IsConnectedString() string {
@@ -61,11 +62,11 @@ func (b *Binance) SetKeys(api, secret string, isTest bool) bool {
 	return true
 }
 
-func (b *Binance) GetSymbol() string {
-	return b.symbol
+func (b *Binance) GetSymbols() []string {
+	return b.symbols
 }
 
-func (b *Binance) SetSymbol(s string) bool {
+func (b *Binance) AddSymbol(s string) bool {
 	if b.client == nil {
 		return false
 	}
@@ -75,13 +76,33 @@ func (b *Binance) SetSymbol(s string) bool {
 		return false
 	}
 
-	b.symbol = s
+	for _, v := range b.symbols {
+		if v == s {
+			return true
+		}
+	}
+
+	b.symbols = append(b.symbols, s)
 	return true
+}
+
+func (b *Binance) RemoveSymbol(s string) {
+	for i, v := range b.symbols {
+		if v == s {
+			b.symbols = append(b.symbols[:i], b.symbols[i+1:]...)
+			break
+		}
+	}
 }
 
 // https://testnet.binancefuture.com/en/futures/BTCUSDT
 // https://binance-docs.github.io/apidocs/futures/en/#get-income-history-user_data
 // https://binance-docs.github.io/apidocs/futures/en/#account-trade-list-user_data
+
+var (
+	lastOpenTS  map[string]int64
+	lastCloseTS map[string]int64
+)
 
 func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 	for {
@@ -89,22 +110,29 @@ func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 			time.Sleep(10 * time.Second)
 			continue
 		}
-
-		trades, err := b.client.NewListAccountTradeService().Symbol(b.symbol).StartTime(b.lastTS).Do(context.Background())
-		if err != nil {
-			log.Println(err)
-			continue
+		var trades []*futures.AccountTrade
+		for _, symbol := range b.symbols {
+			t, err := b.client.NewListAccountTradeService().Symbol(symbol).StartTime(b.lastTS).Do(context.Background())
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			trades = append(trades, t...)
 		}
 
-		lastOpen := ""
-		lastClose := ""
-		maxMessagesCount := 5
+		sort.Slice(trades, func(i, j int) bool {
+			return trades[i].Time < trades[j].Time
+		})
 
-		for i, t := range trades {
-			if i == maxMessagesCount {
+		maxMessagesCount := 5
+		cnt := 0
+
+		for _, t := range trades {
+			if cnt == maxMessagesCount {
 				break
 			}
 
+			cnt++
 			b.lastTS = t.Time + 1
 
 			if t.RealizedPnl == "0" {
@@ -112,19 +140,17 @@ func (b *Binance) Start(bot *tb.Bot, channelId int64) {
 				if t.Side == "SELL" {
 					position = "SHORT"
 				}
-				open := fmt.Sprintf("%s\nОткрываем позицию в %s по цене %s", b.symbol, position, t.Price)
-				if open != lastOpen {
-					lastOpen = open
-					_, err = bot.Send(&tb.Chat{ID: channelId}, open)
+				if t.Time-lastOpenTS[t.Symbol] > 11000 { // 11 sec
+					lastOpenTS[t.Symbol] = t.Time
+					_, err := bot.Send(&tb.Chat{ID: channelId}, fmt.Sprintf("%s\nОткрываем позицию в %s по цене %s", t.Symbol, position, t.Price))
 					if err != nil {
 						log.Println(err)
 					}
 				}
 			} else {
-				c := fmt.Sprintf("%s\nПозиция закрыта по цене %s", b.symbol, t.Price)
-				if c != lastClose {
-					lastClose = c
-					_, err = bot.Send(&tb.Chat{ID: channelId}, c)
+				if t.Time-lastCloseTS[t.Symbol] > 11000 {
+					lastCloseTS[t.Symbol] = t.Time
+					_, err := bot.Send(&tb.Chat{ID: channelId}, fmt.Sprintf("%s\nПозиция закрыта по цене %s", t.Symbol, t.Price))
 					if err != nil {
 						log.Println(err)
 					}
